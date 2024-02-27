@@ -1,5 +1,213 @@
 ---
-title: "Tidy Tuesday Exercise"
+title: "Model Fitting Exercise"
+date: last-modified
+date-format: iso
+execute: 
+  freeze: true
 ---
 
-Placeholder file for the future Tidy Tuesday exercise.
+```{r}
+# Declare package dependencies
+box::use(
+	readr,
+	curl,
+	ggplot2,
+	hgp
+)
+
+# Set global ggplot2 theme
+ggplot2::theme_set(hgp::theme_ms())
+```
+
+
+In this exercise, we'll practice data fitting using the Mavoglurant drug
+candidate data. More information can be found
+[in the assignment description](https://web.archive.org/web/20240226224020/https://andreashandel.github.io/MADAcourse/content/model-fitting/assessment-model-fitting.html).
+
+# Data processing and exploration
+
+First we need to get the data from [the github](https://github.com/metrumresearchgroup/BayesPBPK-tutorial).
+
+```{r}
+# If the local copy already exists, use that. Otherwise download it.
+file_path <- here::here("fitting-exercise", "raw-data.Rds")
+chk <- file.exists(file_path)
+
+if (isTRUE(chk)) {
+	raw_data <- readr::read_rds(file_path)
+} else {
+	# Read the data from the GitHub page
+	data_url <- paste0(
+		"https://raw.githubusercontent.com/metrumresearchgroup/BayesPBPK-tutorial/",
+		"master/data/Mavoglurant_A2121_nmpk.csv"
+	)
+	raw_data <- readr::read_csv(
+		data_url,
+		# The parser will guess that all variables are numeric, but this is not
+		# quite correct.
+		col_types = "cffffddfddffdffdd"
+	)
+	
+	# Save local copy
+	readr::write_rds(raw_data, file_path)
+}
+
+skimr::skim(raw_data)
+```
+
+Now we want to make some exploratory plots. For the first part, we need to make
+a plot of the outcome variable `DV` vs `TIME` stratified by `DOSE` using `ID`
+as a grouping factor.
+
+```{r}
+raw_data |>
+	ggplot2::ggplot() +
+	ggplot2::aes(
+		x = TIME,
+		y = DV,
+		group = ID
+	) +
+	ggplot2::geom_line(alpha = 0.25, show.legend = FALSE) +
+	ggplot2::facet_wrap(facets = ggplot2::vars(DOSE), labeller = "label_both")
+```
+
+OK, we can see clearly that there are less people in the 37.5 dose group than
+the other two, and in the other two there were also multiple trajectories that
+stop early for some reason. Let's take a quick look at how many observations
+we have for each person.
+
+```{r}
+ID_counts <- dplyr::count(raw_data, ID) |> dplyr::pull(n) |> table()
+knitr::kable(ID_counts)
+```
+
+There were `r dplyr::n_unique(raw_data$ID)` different subjects recorded in the
+dataset, and the majority were observed `r names(which.max(ID_counts))` times,
+with some systematic patterns.
+
+Next we need to keep only the `OCC = 1` observations.
+
+```{r}
+dat_occ1 <- raw_data |>
+	dplyr::filter(OCC == 1)
+```
+
+Now let's remake that plot.
+
+```{r}
+dat_occ1 |>
+	ggplot2::ggplot() +
+	ggplot2::aes(
+		x = TIME,
+		y = DV,
+		group = ID
+	) +
+	ggplot2::geom_line(alpha = 0.25, show.legend = FALSE) +
+	ggplot2::facet_wrap(facets = ggplot2::vars(DOSE), labeller = "label_both")
+```
+
+This plot looks slightly different, which indicates that we were likely
+aggregating different trajectories together -- it seems that some patients
+were observed multiple times.
+
+## Aggregating time values
+
+Since we don't want to do the time-series analysis, we'll aggregate here. First
+we want to calculate the sum over all the non-zero time points.
+
+```{r}
+dat_t_sums <- dat_occ1 |>
+	# First remove all of the time point zeroes
+	dplyr::filter(TIME != 0) |>
+	# Aggregate over each individual
+	dplyr::group_by(ID) |>
+	# Sum up the outcome variables
+	dplyr::summarize(Y = sum(DV))
+```
+
+Now we'll filter so we only have the time-zero values, and we'll join our
+new variable back to that dataset.
+
+```{r}
+dat_time_zero <- dat_occ1 |>
+	dplyr::filter(TIME == 0)
+
+dat_joined <- dplyr::left_join(dat_time_zero, dat_t_sums, by = "ID")
+```
+
+Now since we already have race and sex stored a factors we just need to select
+the factors that we need for modeling.
+
+```{r}
+dat_models <- dat_joined |>
+	dplyr::select(Y, DOSE, RATE, AGE, SEX, RACE, WT, HT) |>
+	dplyr::rename_with(tolower) |>
+	dplyr::mutate(dplyr::across(dplyr::where(is.factor), forcats::fct_drop))
+
+dplyr::glimpse(dat_models)
+```
+
+# EDA
+
+put some EDA plots here
+
+# Model fitting
+
+```{r}
+library(tidymodels)
+```
+
+
+```{r}
+y_ap_recipe <- recipe(y ~ ., data = dat_models)
+y_dose_recipe <- recipe(y ~ dose, data = dat_models)
+lm_spec <- linear_reg() |>
+	set_mode("regression") |>
+	set_engine("lm")
+
+y_dose_wf <- workflow() |>
+	add_model(lm_spec) |>
+	add_recipe(y_dose_recipe)
+
+y_ap_wf <- workflow() |>
+	add_model(lm_spec) |>
+	add_recipe(y_ap_recipe)
+
+y_dose_fit <- fit(y_dose_wf, data = dat_models)
+y_dose_aug <- augment(y_dose_fit, dat_models)
+yardstick::rmse(y_dose_aug, truth = y, estimate = .pred)
+yardstick::rsq(y_dose_aug, truth = y, estimate = .pred)
+
+y_ap_fit <- fit(y_ap_wf, data = dat_models)
+y_ap_aug <- augment(y_ap_fit, dat_models)
+yardstick::rmse(y_ap_aug, truth = y, estimate = .pred)
+yardstick::rsq(y_ap_aug, truth = y, estimate = .pred)
+```
+
+
+```{r}
+sex_ap_recipe <- recipe(sex ~ ., data = dat_models)
+sex_dose_recipe <- recipe(sex ~ dose, data = dat_models)
+log_spec <- logistic_reg() |>
+	set_mode("classification") |>
+	set_engine("glm")
+
+sex_dose_wf <- workflow() |>
+	add_model(log_spec) |>
+	add_recipe(sex_dose_recipe)
+
+sex_ap_wf <- workflow() |>
+	add_model(log_spec) |>
+	add_recipe(sex_ap_recipe)
+
+sex_dose_fit <- fit(sex_dose_wf, data = dat_models)
+sex_dose_aug <- augment(sex_dose_fit, dat_models)
+yardstick::accuracy(sex_dose_aug, truth = sex, estimate = .pred_class)
+yardstick::roc_auc(sex_dose_aug, truth = sex, .pred_1)
+
+sex_ap_fit <- fit(sex_ap_wf, data = dat_models)
+sex_ap_aug <- augment(sex_ap_fit, dat_models)
+yardstick::accuracy(sex_ap_aug, truth = sex, estimate = .pred_class)
+yardstick::roc_auc(sex_ap_aug, truth = sex, .pred_1)
+```
+

@@ -1,0 +1,47 @@
+# data processing and exploration section
+* Making a plot "stratified by DOSE and using ID as a grouping factor" is
+ambiguous and likely a bit confusing for some students. I think a better wording
+would be "plot a separate time-series trajectory (a line) for each ID, making
+sure that the doses are visually distinguishable in some way."
+* "The proper way to do this would be to do some form of integration to get the area under the curve, e.g. with a simple trapezoid rule" -- I disagree. I think the
+proper way to do this would be to use a time series or longitudinal method :).
+AUC could be a relevant outcome but it is certainly much more proper to model
+the entire trajectory and compute the AUC predictions a posteriori rather than
+predict the AUCs.
+* IMO, how to get to a dataframe of size 120 x 18 is likely not explained enough
+for where most of the students are at right now.
+This is IMO a fairly sophisticated data aggregation step, and I think you
+need to explain in detail that students need to first get the summarized Y
+value data frame which has 120 rows and 2 columns, then join that to the filtered
+data frame which only has the TIME == 0 values (120 rows x 17 columns) in it.
+I already had one student ask me about this who was doing the complete wrong
+thing and I think elaborating a bit more here would be useful, since I expect
+most of them are not used to doing this kind of thing yet. I think it's also
+worth elaborating that we can only do this because the outcome is the only
+time-dependent variable, there are no time-dependent covariates which are
+extremely prevalent in "real" data.
+* Probably worth noting that if one were doing a "real" analysis, the values of
+race being 1, 2, 7, and 88 should be a cause for concern that we need to
+investigate, and there is extreme class imbalance in the sex variable.
+* Also, the rate and the dose induce rank-deficiency in the model fit, they
+completely determine each other. This should definitely be pointed out in the
+exercise, because including both in the model is silly. Check
+table(data$rate, data$dose) to see.
+* sex being an outcome is kind of nonsensical to me, at least in this data.
+Combined with the nonsensical aggregation step we do to get non-time-series data
+I don't really like this as a teaching example.
+* Speaking of sex, it's also problematic for mathematical reasons and creates a
+fit that is IMO more confusing than the poor fits using Brian's data, at least
+those were just bad and not really nonsensical. Because the sex variable has
+such strong class balance, we can almost perfectly predict it -- not because
+we actually know anything, just because the model space is stochastically
+separable.
+* If we can't find a dataset that
+works for the problems we want to fit without doing that kind of silly stuff,
+I think it would be much better to use a teaching dataset. Doing this kind of
+silly stuff is IMO worse than the data not being "real".
+* With Brian's data the problem was that the signal was really weak, which I
+think also hinders learning. But at least we didn't have to do this kind of
+nonsensical analysis on that dataset.
+* Again, my suggestion would be the standard wine quality data set.
+https://archive.ics.uci.edu/dataset/186/wine+quality. 
