@@ -81,7 +81,7 @@ ID_counts <- dplyr::count(raw_data, ID) |> dplyr::pull(n) |> table()
 knitr::kable(ID_counts)
 ```
 
-There were `r dplyr::n_unique(raw_data$ID)` different subjects recorded in the
+There were `r skimr::n_unique(raw_data$ID)` different subjects recorded in the
 dataset, and the majority were observed `r names(which.max(ID_counts))` times,
 with some systematic patterns.
 
